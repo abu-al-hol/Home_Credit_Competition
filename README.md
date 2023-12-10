@@ -1,8 +1,11 @@
 # Home_Credit_Competition
-My attempt at the Home Credit Kaggle Competition...
+About: My attempt at the Home Credit Kaggle Competition...
 
+## Introduction
 
-Making a quick update....
+I am currently a candidate for the Master of Science in Business Analytics (MSBA) within the Eccles School of Business at the University of Utah. If you are a college graduate in need of a boost to your career or want to "exponentiate" your data acumen and business background, it's the place to be. Click for more information...
+
+- [Unversity of Utah MSBA Program](https://eccles.utah.edu/programs/master-of-science-in-business-analytics/)
 
 ## Project Pages
 

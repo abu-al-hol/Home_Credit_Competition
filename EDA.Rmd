@@ -1,0 +1,639 @@
+
+---
+title: "EDA MSBA EDA"
+author: "Jacob Jarrard U0082542"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    css: styles.css
+    toc: True
+    
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(knitr)
+library(summarytools)
+library(gridExtra)
+library(reshape2)
+library(RColorBrewer)
+library(skimr)
+library(gridExtra)
+library(scales)
+library(caret)
+```
+
+## I. INTRO EDA for Home Credit
+
+### Business problem statement
+
+> Home Credit navigates the financial disparities prevalent between emerging and developed markets.  As part of our ongoing commitment, the Data Analytics team is initiating an extensive risk analytics project powered by data mining techniques and best practices.  Through integrating historical and real-time client data and correlating insights from specific market regions, we intend to apply predictive analytics techniques to categorize clients based on their repayment potential.  We shall strategically position this project to enhance our risk modeling capabilities, facilitating a refined client acquisition process and bolstering our prominence in emerging markets. 
+
+> With that, given that the developing world needs loans but does not have a credit bureau industry established like economically developed countries, we need to draw on as many diverse data sets as possible to determine the likelihood of a given client's repayment probability.  As it is, we know a priori that only about %8 of clients have defaulted on loans to date, and %92 repay as required.  Ultimately, we want to turn down loan applications to those whose data profile, in aggregate, exhibits a propensity to default.  We intend to shrink the default rate of %8 to something near zero for future loan generation.  We will accomplish this by identifying key variables in our datasets that show the most significant correlation to loan default or - when combined - indicate a greater likelihood of loan default.
+
+> The following data is massive; combined training and testing data represent 356,255 observations, or individual clients past and present.  The split is %86.31 (training) and %13.67 (testing).  We know the disposition (default: no/yes) of those in the training data, identified as the variable "TARGET." Upon completing the project, we intend to show how our data mining algorithm (yet undecided) will predict who of the testing data will be susceptible to default. 
+
+> We do not know when or where this data was collected, though we consider it mostly homogenous and adequate for this study.  However, some data manipulation will require consideration and much work.  It is worth mentioning that many people living in developing countries do not have credit histories, and the original data captured at the source was only sometimes complete, which explains most of the gaps in the data.  With this in mind, despite some obvious and less obvious issues, the most significant elements that indicate default can be identified, even those that are unclear.  Once captured, we can improve our data collection at the point of loan application.  The following Exploratory Data Analysis hopes to, at a minimum, define the scope of the data, identify problems in the data that require deeper consideration, create a way forward according to the EDA process, and inform management of the status of the project and work that will be needed to complete it. 
+
+### Data at a Glance: 
+
+> In preparation for the project, we have assembled a large amount of client data as follows: 
+>
+
+>    - Main Training Data: A collection of 307,511 independent clients (rows) with 122 dimensions (columns) capturing: 
+>
+>       * Economic Data
+>       * Social Data
+>       * Housing Data (where available)
+>       * Geographical Data
+>       * Previous Financial Interactions Aggregated (if available)
+>       * A target variable "Target" which notes if the client defaulted (YES ~ %8) or not (NO ~ %92)
+
+>    
+>   - Main Testing Data: A separate collection of 48744 independent clients reflecting the same demographic dimensions as the testing data, but without the "Target" variable. 
+
+
+>   - Ancillary/Supporting Financial Data: 
+>          
+>       * bureau: 1,716,428 observations, e.g credit bureau records that are related to 263,491 individuals in the training set and 42,320 in the testing set.  
+>       * bureau_balance: 27,299,925 observations of clients (using a separate client ID), related to individuals in the bureau table, that indicate individual loans, their duration, and status (0 or 1).
+>       * credit_card_balance: 3,840,312 observations of credit card accounts used by 86,905 individuals in the training set and 16,653 in the test set. 
+>       * POS_CASH_balance: 10,001,358 observations of client interactions with loan/currency transactions where 289,444 clients appeared in the training set and 47,808 appear in the testing data. 
+>       * installments_payments: 13,605,401 observations/interactions of clients installment payments to which 291,643 clients in the training set made payments and 47,944 in the testing set made payments. 
+>       * previous_application: 1,670,214 applications for previous loans related to 291,057 clients in the training set and 47,800 in the testing set. 
+
+### Business and Analytic Problems and Approaches. 
+
+> A thorough review of the data should take into account or provide answers to the following questions: 
+
+>    - How does the nature of the data in totality describe our clients in general? 
+>    - How does the data facilitate or impede our approach to modeling and then employing our model? 
+>    - How do the NA values affect our data modeling? 
+>    - How are we going to consider NA values for each variable? 
+>    - Not all the ancillary data provides information about every customer. How do we employ the ancillary data with our test/train data without increasing bias or noise? 
+>    - The data was split 86/14 train/test. Is the testing data generally reflective of the training data? 
+>    - The TARGET variable is ~%92 no default, ~%8 yes default. Does this affect our EDA?
+>    - What is our process to clean, impute, create a correlation matrix, or conduct anomaly detection on the TARGET variable?
+>    - What else do we need to know and have in place before we begin modeling with various algorithms?
+>    - Will dimensional reduction be employed given the 122 variables in the data, many of which have NA values?
+>    - What about feature engineering?
+
+> The exploration of data peels back layers of detail that can spiral nearly indefinitely.  The following EDA is primarily meant to understand our data, and perhaps lead us to an intermediate step of deeper exploration. For purposes of brevity the following EDA answers or raises more important questions about our data and upcoming steps. 
+
+```{r theme-definition, echo=FALSE}
+
+#This theme function I created to have my output graphs match the css file I made to create the notebook.
+
+my_theme <- function() {
+  theme_minimal() +
+  theme(
+    text = element_text(color = "#666699"),
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    panel.grid.major = element_line(color = "#f8f8f8"),
+    panel.grid.minor = element_line(color = "#f8f8f8"),
+    panel.background = element_rect(fill = "#f8f8f8"),
+    strip.background = element_rect(fill = "#333366", color = "#333366", size = 1),
+    strip.text = element_text(face = "bold", color = "white")
+  )
+} 
+``` 
+
+## II. THE EDA
+
+### 1.0 Prep the Workspace in Posit Cloud
+
+> Start the easy work of bringing in the relevant data frames for EDA, though in this exercise we will primarily explore the main train and test data sets, with the occasional glance at the other sets.  These datasets were much larger than anticipated, and I had to jack up the power of my posit cloud account to even import them in a timely fashion. 
+
+```{r}
+main_df_train <- read.csv("application_train.csv")
+main_df_test <- read.csv("application_test.csv")
+#pos_cash_balance <- read.csv("POS_CASH_balance.csv")
+#bureau <- read.csv("bureau.csv")
+#bureau_balance <- read.csv("bureau_balance.csv")
+#credit_card_balance <- read.csv("credit_card_balance.csv") 
+#installments_payments <- read.csv("installments_payments.csv") 
+#previous_application <- read.csv("previous_application.csv")
+
+#test changes
+```
+
+```{r}
+#skim(main_df_train)
+#skim(main_df_test)
+#Keeping the skim function in here for future use, and opting to use the summarytools library to observe deeper summary statistics of train and test
+```
+
+
+
+### 2.0 Learning about the Training Data
+> While the output is large this is really the only way to review the nature of the data from top to bottom and start the real Q&A as we dive in to its content and structure. 
+
+```{r quick_look}
+
+suppressWarnings(dfSummary(main_df_train))
+```
+
+
+### 2.1 Inspecting NAs for Future Action
+
+> All the below NAs provide for hours of discussion. Moreover, the way we impute NAs here will be very important and different for each variable.   
+
+
+```{r}
+
+# Function to identify and count NAs in variables, and also show type and ranges
+identify_na_vars <- function(data) {
+  na_vars <- sapply(data, function(x) any(is.na(x)))
+  na_vars_names <- names(na_vars)[na_vars]
+  na_counts <- sapply(data[, na_vars_names, drop = FALSE], function(x) sum(is.na(x)))
+  var_types <- sapply(data[, na_vars_names, drop = FALSE], function(x) class(x)[1])
+  
+  value_ranges <- sapply(data[, na_vars_names, drop = FALSE], function(x) {
+    if(is.numeric(x)) {
+      # For numeric variables, return min-max range
+      range_text <- paste(range(x, na.rm = TRUE), collapse = " - ")
+    } else if(is.factor(x) || is.character(x)) {
+      # For factor or character variables, return unique value count
+      range_text <- paste(length(unique(x[!is.na(x)])), "unique values")
+    } else {
+      range_text <- "Unknown"
+    }
+    return(range_text)
+  })
+  
+  if(length(na_vars_names) > 0) {
+    na_data <- tibble(
+      Variable = na_vars_names,
+      NA_Count = na_counts,
+      Var_Type = var_types,
+      Value_Ranges = value_ranges
+    )
+    return(na_data)
+  } else {
+    return(tibble(
+      Variable = character(),
+      NA_Count = integer(),
+      Var_Type = character(),
+      Value_Ranges = character()
+    ))
+  }
+}
+
+
+```
+
+
+
+
+```{r}
+
+# Check the function on the training set
+na_info_train <- identify_na_vars(main_df_train)
+na_info_train
+
+```
+
+
+
+
+```{r}
+
+# Compare the testing set
+na_info_test <- identify_na_vars(main_df_test)
+na_info_test
+```
+
+> Observation: Without reading too far, it occurred to me that the AMT_ANNUITY in both the training and testing data were spit very obviously 1/3 to 2/3rd and opposite what you would expect them to be given the training set was much larger than the test set.  This odd detail caught my attention and made me want to dwell on NAs to observe the randomness (or lack thereof) between the two data sets.  
+
+### 2.3 Comparing NAs between Train and Test
+
+```{r }
+
+na_info_combined <- full_join(na_info_train, na_info_test, by = "Variable", suffix = c("_Train", "_Test"))
+na_info_combined <- na_info_combined %>%
+  select(-Var_Type_Train, -Var_Type_Test)
+na_info_combined <- na_info_combined %>%
+  select(Variable, NA_Count_Train, NA_Count_Test, Value_Ranges_Train, Value_Ranges_Test)
+
+print(na_info_combined, n = 62)
+
+
+```
+
+> I am getting a feel for the nature of the train and test data simply from looking at the ratios of NAs in both sets (and to mull over how I would want to employ a rule to impute on any of these given variables, as I think I will have to do the same imputing of NULLs to both sets in the same manner when the time comes.)
+
+
+
+```{r}
+
+# Compare NAs a bit more 
+
+na_info_combined2 <- full_join(na_info_train, na_info_test, by = "Variable", suffix = c("_Train", "_Test"))
+na_info_combined2 <- na_info_combined2 %>%
+  select(-Var_Type_Train, -Var_Type_Test) %>%
+  select(Variable, NA_Count_Train, NA_Count_Test, Value_Ranges_Train, Value_Ranges_Test) %>%
+  mutate(
+    Total_NA = NA_Count_Train + NA_Count_Test,
+    Pct_NA_Train = (NA_Count_Train / Total_NA),
+    Pct_NA_Test = (NA_Count_Test / Total_NA)
+  )
+
+na_info_combined2 <- na_info_combined2 %>% 
+  select(-NA_Count_Train, -NA_Count_Test, -Value_Ranges_Test, -Value_Ranges_Train)
+print(na_info_combined2, n = 62)
+
+
+# The Skewed NA information shows that the train and test data were not split organically to begin with. 
+cat("Mean of Pct_NA_Train:", mean(na_info_combined2$Pct_NA_Train, na.rm = TRUE), "\n",
+    "Mean of Pct_NA_Test:", mean(na_info_combined2$Pct_NA_Test, na.rm = TRUE), "\n")
+
+
+```
+
+> There apppears to be a little too much variability between the training and testing data, as if they were not at one point all one set of observations randomly split (like one would do using a standard 80/20 split on original data.)  At this point, the EDA - on NA values alone - indicate that there may be some problems given the varied nature of the data. All things being fair thus far, it appears to me that there are differences in the data such that these customers may be from different geographical regions or the test data gathered at very different times/seasons (or something similar.) So, while it may pose challenges when running a model given the NA values for all variables are not split to something close to 87% train 13% test across the board, the body of the data is still largely homogenous.  The variability in the training and testing data sets is actually a fun challenge to face, and far more realistic even if model output is going to have some unique errors.  
+
+
+### 2.4 Reviewing the Test Data
+```{r}
+suppressWarnings(dfSummary(main_df_test))
+#opted to put the summary statistics of the test data here using dfSummary() from the summarytools library, though we can use the skim library as well, for a condensed output
+#While much larger output, I like the summarytools output better given the task at hand. 
+```
+
+### 2.5 Plotting & Observing Variability
+
+> GENDER: All things being equal I find it funny that there is some randomness in most variables between testing and training (87% to 13%), but when it comes to gender its a near perfect split at **66% female** and **%33 male**. It is very possible that this is perfectly random, and it is also possible that this variable was used to split the original dataset, but its unlikely given that the income of testing and training populations showed some rather large variability. This obviously indicates that the pool of clients was intentionally split by gender at some point. 
+
+
+```{r warning=FALSE}
+
+
+# Create a function to plot gender bar plots with percentage labels
+plot_gender <- function(data, title) {
+  ggplot(data, aes(x = CODE_GENDER)) +
+    geom_bar(aes(y = (..count..)/sum(..count..)), fill = "#333366") +
+    geom_text(aes(label = scales::percent((..count..)/sum(..count..)), 
+                  y = ((..count..)/sum(..count..))), 
+              stat = "count", vjust = -0.5) +
+    scale_y_continuous(labels = scales::percent) +
+    labs(title = title, y = "Percentage", x = "Gender") +
+    my_theme()
+}
+
+# Example usage
+p1 <- plot_gender(main_df_train, "Gender Breakdown in Training Data")
+p2 <- plot_gender(main_df_test, "Gender Breakdown in Testing Data")
+
+# Print plots
+grid.arrange(p1, p2, ncol=2)
+
+
+```
+
+
+
+```{r warning=FALSE}
+#  training data
+p_train <- ggplot(main_df_train, aes(y = AMT_INCOME_TOTAL)) +
+  geom_boxplot(fill = "#333366") +
+  labs(title = "Boxplot of Income: Training Data",
+       y = "Income") +
+  my_theme()
+
+#  testing data
+p_test <- ggplot(main_df_test, aes(y = AMT_INCOME_TOTAL)) +
+  geom_boxplot(fill = "#666699") +
+  labs(title = "Boxplot of Income: Testing Data",
+       y = "Income") +
+  my_theme()
+
+# To print the plots side by side (if using RMarkdown)
+
+grid.arrange(p_train, p_test, ncol=2)
+
+
+```
+
+
+
+```{r}
+
+
+plot_histogram <- function(data, var_name, title, binwidth = NULL, log_transform = FALSE) {
+  p <- ggplot(data, aes_string(x = var_name)) +
+    geom_histogram(
+      fill = "#333366", 
+      bins = ifelse(is.null(binwidth), 30, NULL), 
+      binwidth = binwidth,
+      alpha = 0.7
+    ) +
+    labs(title = title, x = var_name, y = "Frequency") +
+    my_theme()
+  
+  # Apply log transformation to the x-axis scale if log_transform is TRUE
+  if (log_transform) {
+    p <- p + scale_x_continuous(trans = 'log10')
+  }
+  
+  return(p)
+}
+
+# log transformed histograms ugh
+p1 <- plot_histogram(main_df_train, "AMT_INCOME_TOTAL", "Income Total - Training Data", log_transform = TRUE)
+p2 <- plot_histogram(main_df_test, "AMT_INCOME_TOTAL", "Income Total - Testing Data", log_transform = TRUE)
+
+
+grid.arrange(p1, p2, ncol=2)
+```
+
+> I am going to quickly remove the outlier and see if it fixes the box plot or the histograms. 
+
+```{r}
+main_df_train_no_outlier <- main_df_train %>%
+  filter(AMT_INCOME_TOTAL < 4e+06)
+
+# To verify
+summary(main_df_train_no_outlier$AMT_INCOME_TOTAL) #no outlier
+summary(main_df_train$AMT_INCOME_TOTAL) #original with outlier
+summary(main_df_test$AMT_INCOME_TOTAL) #testing
+
+p1 <- plot_histogram(main_df_train_no_outlier, "AMT_INCOME_TOTAL", "Income - Training No Outlier", log_transform = TRUE)
+p2 <- plot_histogram(main_df_test, "AMT_INCOME_TOTAL", "Income Total - Testing Data", log_transform = TRUE)
+
+
+grid.arrange(p1, p2, ncol=2)
+```
+
+> Removal of the outlier makes the training and testing a little more normal at this view, but...
+
+> Box plots still show that there is some interesting variablility remaining between the training and testing sets. 
+
+```{r warning=FALSE}
+# training data boxplot
+p_train <- ggplot(main_df_train_no_outlier, aes(y = AMT_INCOME_TOTAL)) +
+  geom_boxplot(fill = "#333366") +
+  labs(title = "Income - Training Data, No Outlier",
+       y = "Income") +
+  my_theme()
+
+# Create a boxplot for the testing data
+p_test <- ggplot(main_df_test, aes(y = AMT_INCOME_TOTAL)) +
+  geom_boxplot(fill = "#666699") +
+  labs(title = "Boxplot of Income: Testing Data",
+       y = "Income") +
+  my_theme()
+
+# To print the plots side by side (if using RMarkdown)
+
+grid.arrange(p_train, p_test, ncol=2)
+
+
+```
+
+```{r warning=FALSE}
+
+
+p4 <- plot_histogram(main_df_train, "AMT_CREDIT", "Credit Histogram Training Data")
+p5 <- plot_histogram(main_df_test, "AMT_CREDIT", "Credit Histogram Testing Data")
+
+grid.arrange(p4, p5, ncol=2)
+
+
+```
+
+> We see some noteworthy variability in the "Amount of Annuity" between the training and testing set.  The training set has a much larger spread of values, and half of the missing values of the test set. This initial and obvious issue caught my eye, and while we know the training set is roughly 7 times larger than the test set, it doesn't yet make sense to me why these values are so different. It hints at the possibility that the data was intentionally messed with, or collected at different times or from different groups of people. (Perhaps clients captured in different marketing efforts? And then split 2/3 female and 1/3 male?)
+
+```{r warning=FALSE}
+p4 <- plot_histogram(main_df_train, "AMT_ANNUITY", "Annuity Histogram Training Data")
+p5 <- plot_histogram(main_df_test, "AMT_ANNUITY", "Annuity  Histogram Testing Data")
+
+
+grid.arrange(p4, p5, ncol=2)
+
+
+na_info_combined[1, ] 
+
+
+```
+
+
+
+```{r warning=FALSE}
+#  training data
+p2_train <- ggplot(main_df_train, aes(y = AMT_ANNUITY)) +
+  geom_boxplot(fill = "#333366") +
+  labs(title = "Boxplot of Annuity: Training Data",
+       y = "Income") +
+  my_theme()
+
+#  testing data
+p2_test <- ggplot(main_df_test, aes(y = AMT_ANNUITY)) +
+  geom_boxplot(fill = "#666699") +
+  labs(title = "Boxplot of Annuity: Testing Data",
+       y = "Income") +
+  my_theme()
+
+# To print the plots side by side (if using RMarkdown)
+
+grid.arrange(p2_train, p2_test, ncol=2)
+
+
+```
+
+
+### 3.0 Exploring Additional Data
+
+> The following six datasets are related to the training and testing set and present a great deal of opportunity for inclusion as new variables into the dataset. All six data sets include client data, borrowing histories, repayment histories, and credit application inquries with reasons for denial.  The way in which the values here factor into the ultimate algorithm are clearly up for debate at the moment and will be implemented after a thorough review of each. 
+
+### 3.1 bureau, bureau_balance, credit_card_balance 
+
+```{r}
+bureau <- read.csv("bureau.csv")
+bureau_balance <- read.csv("bureau_balance.csv")
+credit_card_balance <- read.csv("credit_card_balance.csv") 
+
+
+```
+
+```{r}
+skim(bureau) #inspect bureau and review the number of related customer transactions 
+
+# Knowing the number of clients in the main train/test set who appear in the bureau dataset
+common_ids_bureau_train <- intersect(main_df_train$SK_ID_CURR, bureau$SK_ID_CURR) 
+common_ids_bureau_test <- intersect(main_df_test$SK_ID_CURR, bureau$SK_ID_CURR) 
+cat("Number of common SK_ID_CURR between main_df_train and bureau: ", length(common_ids_bureau_train), "\n")
+cat("Number of common SK_ID_CURR between main_df_test and bureau: ", length(common_ids_bureau_test), "\n")
+# I want to know the extent to which the two tables join.
+
+```
+
+> Determining this will help us understand where missing data in the main train/test sets may exist, or how the train/test sets may have included some of this information, or how we could create more problems if we were to include any variables in the bureau dataset into the train/test data set. Basically, in short, I want to know the extent to which the two tables join. Clearly there are issues with the fact that 263,491 of the individuals in the bureau data are found in the testing data (~%85 of the testing subjects have data to use in the bureau data) and 42,320 (~%87) of the individuals in the testing set appear in the bureau set. And the same thought process follows with the other 5 data sets. 
+
+
+
+```{r}
+skim(bureau_balance)
+
+```
+
+
+```{r}
+skim(credit_card_balance) 
+
+common_ids_credit_train <- intersect(main_df_train$SK_ID_CURR, credit_card_balance$SK_ID_CURR)
+common_ids_credit_test <- intersect(main_df_test$SK_ID_CURR, credit_card_balance$SK_ID_CURR)
+
+
+cat("Number of common SK_ID_CURR between main_df_train and credit_card_balance: ", length(common_ids_credit_train), "\n")
+cat("Number of common SK_ID_CURR between main_df_test and credit_card_balance: ", length(common_ids_credit_test), "\n")
+
+```
+
+
+
+### 3.2 pos_cash_balance, installments_payments, previous_application
+
+```{r}
+pos_cash_balance <- read.csv("POS_CASH_balance.csv")
+installments_payments <- read.csv("installments_payments.csv") 
+previous_application <- read.csv("previous_application.csv")
+```
+
+
+```{r pos_cash_bal}
+skim(pos_cash_balance)
+common_ids_cash_balance_train <- intersect(main_df_train$SK_ID_CURR, pos_cash_balance$SK_ID_CURR)
+common_ids_cash_balance_test <- intersect(main_df_test$SK_ID_CURR, pos_cash_balance$SK_ID_CURR)
+cat("Number of common SK_ID_CURR between main_df_train and pos_cash_balance: ", length(common_ids_cash_balance_train), "\n")
+cat("Number of common SK_ID_CURR between main_df_test and pos_cash_balance: ", length(common_ids_cash_balance_test), "\n")
+
+```
+
+
+
+```{r}
+skim(installments_payments)
+common_ids_installments_payments_train <- intersect(main_df_train$SK_ID_CURR, installments_payments$SK_ID_CURR)
+common_ids_installments_payments_test <- intersect(main_df_test$SK_ID_CURR, installments_payments$SK_ID_CURR)
+cat("Number of common SK_ID_CURR between main_df_train and installments_payments: ", length(common_ids_installments_payments_train), "\n")
+cat("Number of common SK_ID_CURR between main_df_test and installments_payments: ", length(common_ids_installments_payments_test), "\n")
+
+```
+
+
+
+```{r}
+skim(previous_application)
+common_ids_previous_application_train <- intersect(main_df_train$SK_ID_CURR, previous_application$SK_ID_CURR)
+common_ids_previous_application_test <- intersect(main_df_test$SK_ID_CURR, previous_application$SK_ID_CURR)
+cat("Number of common SK_ID_CURR between main_df_train and previous_application: ", length(common_ids_previous_application_train), "\n")
+cat("Number of common SK_ID_CURR between main_df_test and previous_application: ", length(common_ids_previous_application_test), "\n")
+
+```
+
+### 4.0 TARGET Variable at a Glance
+
+
+```{r warning=FALSE}
+
+# Create a function to plot gender bar plots with percentage labels
+plot_target_vs_gender <- function(data, title) {
+  ggplot(data, aes(x = CODE_GENDER)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..)), fill = "#333366") +
+    geom_text(aes(label = scales::percent((..count..)/sum(..count..)), 
+                  y = ((..count..)/sum(..count..))),
+              stat = "count", vjust = -0.5) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +  # Adjust y-axis limits for space
+    labs(title = title, y = "Percentage", x = "Gender") +
+    facet_wrap(~ TARGET, scales = "free_y", 
+               labeller = labeller(TARGET = c(`0` = "0 No Default", `1` = "1 Default"))) + 
+    # Use labeller to customize facet labels
+    my_theme()
+}
+
+# Example usage
+p1 <- plot_target_vs_gender(main_df_train, "Gender vs. Target in Training Data")
+
+# Print plot
+print(p1)
+
+
+```
+
+```{r warning=FALSE}
+
+# Create a function to plot gender bar plots with percentage labels
+plot_target_vs_vehicle <- function(data, title) {
+  ggplot(data, aes(x = FLAG_OWN_CAR)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..)), fill = "#333366") +
+    geom_text(aes(label = scales::percent((..count..)/sum(..count..)), 
+                  y = ((..count..)/sum(..count..))),
+              stat = "count", vjust = -0.5) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +  # Adjust y-axis limits for space
+    labs(title = title, y = "Percentage", x = "Own Vehicle") +
+    facet_wrap(~ TARGET, scales = "free_y", 
+               labeller = labeller(TARGET = c(`0` = "0 No Default", `1` = "1 Default"))) + 
+    # Use labeller to customize facet labels
+    my_theme()
+}
+
+# Example usage
+p2 <- plot_target_vs_vehicle(main_df_train, "Vehicle Ownership vs. Target in Training Data")
+
+# Print plot
+print(p2)
+
+
+```
+
+```{r warning=FALSE}
+
+# Create a function to plot gender bar plots with percentage labels
+plot_target_vs_realty <- function(data, title) {
+  ggplot(data, aes(x = FLAG_OWN_REALTY)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..)), fill = "#333366") +
+    geom_text(aes(label = scales::percent((..count..)/sum(..count..)), 
+                  y = ((..count..)/sum(..count..))),
+              stat = "count", vjust = -0.5) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +  # Adjust y-axis limits for space
+    labs(title = title, y = "Percentage", x = "Own Real Estate") +
+    facet_wrap(~ TARGET, scales = "free_y", 
+               labeller = labeller(TARGET = c(`0` = "0 No Default", `1` = "1 Default"))) + 
+    # Use labeller to customize facet labels
+    my_theme()
+}
+
+# Example usage
+p3 <- plot_target_vs_realty(main_df_train, "Real Estate Ownership vs. Target in Training Data")
+
+# Print plot
+print(p3)
+
+
+```
+
+> The above graphs effectively give tiny hints at how variables can have an influence on the Target variable. We can create graphs of each variable and their impact to the Target variable all day, but such effort would be best served using a linear regression model, classification tree, or a Naive Bayes model to know all the basic probabilities of the variables related to the Target. Much more analysis of this data is required before a final model is employed. Nonetheless some features of the data are more impactful than others, and some cause a great deal of noise. 
+
+
+
+## III. CONCLUSION
+
+> Given time constraints, we provide the following insights, though note there could be infinite details extrapolated from EDA.  
+
+> The data provided was collected across a very diverse group of individuals, perhaps at different times of years, through different marketing campaigns, or from people of different geographic regions, perhaps rural or urban. We can tell that the data seems to be split intentionally, based on some unknown variable or aspect of a variable, as there are some discrepancies between the training set and testing set that are not consistent with a purely randomized split. This in-and-of-itself is not too critical as any good model should produce good predictions, but it leads me to consider the semi haphazard handling of the data and the overall integrity of the collection. That said, it is what it is, and this leads us to think harder about our next steps and what else we need to uncover before employing a model and submitting our predictions on the test data. And obviously the body of data split 66/33 female to male indicates that from the beginning the loans that were given out were unevenly distributed to women (or again, the data was intentionally manipulated.)
+
+> Imputing data with NA values is going to be laborious and intentional. Some may be easier to impute, as in housing data, where 1 or 0 would suffice and could be largely assumed from other values. However, other variables will warrant heavy discussion with the team. Outliers do not appear to be a significant issue, and can be handled at model execution using a log function to pull in any siginificant issues. 
+
+> We will have to run some models on the anciliary data sets to find variables of significance that may not be included in the training and testing data.  This is going to be a massive chore and will take all the work of the team to get correct. 
+
+> We did not include more robust correlations in this EDA but in gathering our findings, we conducted some correlation matrices that showed several categorical variables were very related, and we saw limited effects of independent variables on our target variable, but without extraordinarily profound effect up front (as in the case of the graphs exploring the target variable.) Since we have so many variables, we simply have to run a number of linear regressions and experiment with variables together to find a more profound impact on the target variable. Dimensionality reduction will be key to improving our outcomes as will finding the perfect algorithm. 
+
+
+
+

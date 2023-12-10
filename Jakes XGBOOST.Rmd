@@ -1,0 +1,493 @@
+---
+title: "XGBOOSTED Model - MSBA Capstone"
+author: "Jacob Jarrard U0082542"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: True
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(knitr)
+library(kernlab)
+library(rpart)
+library(rpart.plot)
+library(rminer)
+library(matrixStats)
+library(knitr)
+library(caret)
+library(e1071)
+library(rmarkdown)
+library(caret)
+library(readr)
+library(RWeka)
+library(ROCR) 
+library(C50)
+library(xgboost)
+
+
+```
+
+> In order to get the below files you have to run my "cleaning and engineering.Rmd" 
+
+```{r}
+
+x_train_tbl <- read.csv("x_train_tbl.csv")
+y_train_tbl <- read.csv("y_train_tbl.csv")
+x_test_tbl <- read.csv("x_test_tbl.csv")
+
+
+# Adding TARGET column back to scaled_x_train_tbl
+final_train_tbl <- cbind(x_train_tbl, TARGET = y_train_tbl$TARGET)
+final_train_tbl <- final_train_tbl %>% 
+  select(-SK_ID_CURR)
+str(final_train_tbl)
+```
+
+
+```{r}
+
+
+# Selecting the desired columns for training data
+final_train_tbl <- final_train_tbl %>%
+  select(
+    AMT_CREDIT, 
+    CNT_CHILDREN, 
+    NAME_FAMILY_STATUS, 
+    AMT_INCOME_TOTAL, 
+    CODE_GENDER, 
+    DAYS_BIRTH, 
+    DAYS_EMPLOYED, 
+    FLAG_PHONE,
+    EXT_SOURCE_1,
+    EXT_SOURCE_2,
+    EXT_SOURCE_3,
+    ORGANIZATION_TYPE,
+    NAME_EDUCATION_TYPE,
+    REGION_POPULATION_RELATIVE,
+    FLAG_OWN_CAR,
+    OWN_CAR_AGE,
+    AMT_REQ_CREDIT_BUREAU_YEAR,
+    OCCUPATION_TYPE,
+    REG_CITY_NOT_LIVE_CITY,
+    REGION_RATING_CLIENT,
+    OBS_30_CNT_SOCIAL_CIRCLE,
+    TARGET
+  )
+
+
+
+
+```
+
+
+
+```{r}
+
+#ONE HOT ENCODE TRAINING SET 
+
+
+char_cols <- sapply(final_train_tbl, is.character)
+final_train_tbl[char_cols] <- lapply(final_train_tbl[char_cols], factor)
+
+# Create a dummyVars object to one-hot encode the data
+# Note: use all.factor.levels = TRUE to ensure all levels are included
+dummies <- dummyVars(" ~ .", data = final_train_tbl, all.factor.levels = TRUE)
+
+# Create the full model matrix with one-hot encoded categorical variables
+final_train_tbl_encoded <- predict(dummies, newdata = final_train_tbl)
+
+# Convert to a data frame
+final_train_tbl_encoded <- as.data.frame(final_train_tbl_encoded)
+
+# Verify the structure of the new dataset
+str(final_train_tbl_encoded)
+
+
+```
+
+```{r}
+
+# Selecting the desired columns from the dataset
+final_test_tbl <- x_test_tbl %>%
+  select(
+    AMT_CREDIT, 
+    CNT_CHILDREN, 
+    NAME_FAMILY_STATUS, 
+    AMT_INCOME_TOTAL, 
+    CODE_GENDER, 
+    DAYS_BIRTH, 
+    DAYS_EMPLOYED, 
+    FLAG_PHONE,
+    EXT_SOURCE_1,
+    EXT_SOURCE_2,
+    EXT_SOURCE_3,
+    ORGANIZATION_TYPE,
+    NAME_EDUCATION_TYPE,
+    REGION_POPULATION_RELATIVE,
+    FLAG_OWN_CAR,
+    OWN_CAR_AGE,
+    AMT_REQ_CREDIT_BUREAU_YEAR,
+    OCCUPATION_TYPE,
+    REG_CITY_NOT_LIVE_CITY,
+    REGION_RATING_CLIENT,
+    OBS_30_CNT_SOCIAL_CIRCLE
+  )
+
+#doing the same to testing set
+str(final_test_tbl)
+
+```
+
+
+
+```{r}
+
+#ONE HOT CODE TEST SET
+
+
+
+# Convert character columns to factors to prepare for one-hot encoding
+char_cols <- sapply(final_test_tbl, is.character)
+final_test_tbl[char_cols] <- lapply(final_test_tbl[char_cols], factor)
+
+# Create a dummyVars object to one-hot encode the data
+# Note: We use all.factor.levels = TRUE to ensure all levels are included
+dummies <- dummyVars(" ~ .", data = final_test_tbl, all.factor.levels = TRUE)
+
+# Create the full model matrix with one-hot encoded categorical variables
+final_test_tbl_encoded <- predict(dummies, newdata = final_test_tbl)
+
+# Convert to a data frame
+final_test_tbl_encoded <- as.data.frame(final_test_tbl_encoded)
+
+# Verify the structure of the new dataset
+str(final_test_tbl_encoded)
+
+
+
+```
+
+
+```{r}
+
+
+# If you want to make a 80/20 split
+#set.seed(123) # Setting a seed for reproducibility
+#trainIndex <- createDataPartition(final_train_tbl_encoded$TARGET, p = 0.8, 
+ #                                 list = FALSE, 
+  #                                times = 1)
+
+#trainSet <- final_train_tbl_encoded[trainIndex, ]
+#testSet <- final_train_tbl_encoded[-trainIndex, ]
+
+# Checking the dimensions of the split data
+#dim(trainSet)
+#dim(testSet)
+
+```
+
+
+
+
+
+```{r}
+
+
+# Making the XGBoost
+features <- final_train_tbl_encoded[, -which(names(final_train_tbl_encoded) == "TARGET")]
+labels <- final_train_tbl_encoded$TARGET
+
+# Convert to DMatrix
+dtrain <- xgb.DMatrix(data = as.matrix(features), label = labels)
+
+# Set XGBoost parameters
+params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  eta = 0.1,
+  gamma = 0,
+  max_depth = 6,
+  min_child_weight = 1,
+  subsample = 0.8,
+  colsample_bytree = 0.8
+)
+
+# Number of rounds for training
+nrounds <- 100
+
+# Train the model
+model_xgb <- xgb.train(params = params, data = dtrain, nrounds = nrounds)
+
+# Save the model (optional)
+# xgb.save(model_xgb, "xgb_model.bin")
+
+# dtest <- xgb.DMatrix(data = as.matrix(x_test_tbl_encoded))
+# predictions <- predict(model_xgb, dtest)
+
+
+```
+
+
+
+```{r}
+# Prepare the features and labels from the training set
+train_features <- final_train_tbl_encoded[, -which(names(final_train_tbl_encoded) == "TARGET")]
+train_labels <- final_train_tbl_encoded$TARGET
+
+# Convert to DMatrix
+dtrain <- xgb.DMatrix(data = as.matrix(train_features), label = train_labels)
+
+# Assuming 'model_xgb' is your trained XGBoost model, predict on the training set
+train_predictions_prob <- predict(model_xgb, dtrain)  # This gives you probabilities
+
+# Convert probabilities to binary predictions using a threshold (default is 0.5)
+train_predictions <- ifelse(train_predictions_prob > 0.5, 1, 0)
+
+# Confusion matrix
+confusion_matrix <- table(Predicted = train_predictions, Actual = train_labels)
+
+# Print the confusion matrix
+print(confusion_matrix)
+
+# Convert Actual and Predicted to factors if they are not already
+train_labels_factor <- factor(train_labels, levels = c(0, 1))
+train_predictions_factor <- factor(train_predictions, levels = c(0, 1))
+
+# Create the confusion matrix using caret
+cm <- confusionMatrix(train_predictions_factor, train_labels_factor)
+
+# Print out the confusion matrix with statistics
+print(cm)
+
+```
+
+```{r}
+# Load necessary libraries
+library(caret)
+library(pROC)
+library(xgboost)
+
+
+# Calculate AUC and plot ROC Curve
+roc_obj <- roc(response = train_labels_factor, predictor = train_predictions_prob)
+auc_value <- auc(roc_obj)
+cat("AUC:", auc_value, "\n")
+
+# Plot the ROC curve
+plot(roc_obj, main="ROC Curve for XGBoost", col="#1c61b6", lwd=2)
+abline(a=0, b=1, lty=2, col="gray")
+
+# Calculate log loss
+log_loss <- -mean(train_labels * log(train_predictions_prob) + (1 - train_labels) * log(1 - train_predictions_prob))
+cat("Log Loss:", log_loss, "\n")
+
+```
+
+
+```{r}
+# Prepare the features from the test set
+test_features <- final_test_tbl_encoded
+
+# Convert to DMatrix for xgboost
+dtest <- xgb.DMatrix(data = as.matrix(test_features))
+
+# Predict probabilities on the test set
+predicted_probabilities <- predict(model_xgb, dtest)
+
+# If you need binary predictions
+# predicted_classes <- ifelse(predicted_probabilities > 0.5, 1, 0)
+
+# Now, attach the SK_ID_CURR from x_test_tbl and combine with the predictions
+prediction_tbl <- x_test_tbl %>%
+  select(SK_ID_CURR) %>%
+  mutate(TARGET = predicted_probabilities)  # Or use predicted_classes if you created it
+
+# View the prediction table
+head(prediction_tbl)
+
+```
+
+
+```{r}
+#write.csv(prediction_tbl, "submission_004.csv", row.names = FALSE)
+```
+
+
+
+> Kaggle here is .73894
+
+```{r}
+
+# weighting the minority class 
+# Calculate the proportion of negative to positive instances
+table_of_target <- table(final_train_tbl_encoded$TARGET)
+
+# Class "0" is the majority and "1" is the minority
+scale_pos_weight_value <- table_of_target["0"] / table_of_target["1"]
+
+# Print the scale_pos_weight_value
+print(scale_pos_weight_value)
+
+```
+
+>Try XGBoost again but with the minority class weight increased 
+
+
+```{r}
+# Assuming x_train_tbl_encoded is your one-hot encoded training set
+# Prepare the data
+features <- final_train_tbl_encoded[, -which(names(final_train_tbl_encoded) == "TARGET")]
+labels <- final_train_tbl_encoded$TARGET
+
+# Calculate the ratio of negative to positive
+ratio_neg_to_pos <- sum(labels == 0) / sum(labels == 1)
+
+# Convert to DMatrix
+dtrain <- xgb.DMatrix(data = as.matrix(features), label = labels)
+
+# Set XGBoost parameters including scale_pos_weight
+params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  eta = 0.1,
+  gamma = 0,
+  max_depth = 6,
+  min_child_weight = 1,
+  subsample = 0.8,
+  colsample_bytree = 0.8,
+  scale_pos_weight = ratio_neg_to_pos  # Adjust the class weight
+)
+
+# Number of rounds for training
+nrounds <- 100
+
+# Train the model
+model_xgb <- xgb.train(params = params, data = dtrain, nrounds = nrounds)
+
+# Save the model (optional)
+# xgb.save(model_xgb, "xgb_model.bin")
+
+# Predicting
+
+# dtest <- xgb.DMatrix(data = as.matrix(x_test_tbl_encoded))
+# predictions <- predict(model_xgb, dtest)
+
+```
+
+
+```{r}
+
+train_features <- final_train_tbl_encoded[, -which(names(final_train_tbl_encoded) == "TARGET")]
+train_labels <- final_train_tbl_encoded$TARGET
+
+# Convert to DMatrix
+dtrain <- xgb.DMatrix(data = as.matrix(train_features), label = train_labels)
+
+# Assuming 'model_xgb' is your trained XGBoost model, predict on the training set
+train_predictions_prob <- predict(model_xgb, dtrain)  # This gives you probabilities
+
+# Convert probabilities to binary predictions using a threshold (default is 0.5)
+train_predictions <- ifelse(train_predictions_prob > 0.5, 1, 0)
+
+# Confusion matrix
+confusion_matrix <- table(Predicted = train_predictions, Actual = train_labels)
+
+# Print the confusion matrix
+print(confusion_matrix)
+
+```
+
+```{r}
+train_labels_factor <- factor(train_labels, levels = c(0, 1))
+train_predictions_factor <- factor(train_predictions, levels = c(0, 1))
+
+# Create the confusion matrix using caret
+cm <- confusionMatrix(train_predictions_factor, train_labels_factor)
+
+# Print out the confusion matrix with statistics
+print(cm)
+```
+
+
+```{r}
+# Calculate AUC and plot ROC Curve
+roc_obj <- roc(response = train_labels_factor, predictor = train_predictions_prob)
+auc_value <- auc(roc_obj)
+cat("AUC:", auc_value, "\n")
+
+# Plot the ROC curve
+plot(roc_obj, main="ROC Curve for XGBoost", col="#1c61b6", lwd=2)
+abline(a=0, b=1, lty=2, col="gray")
+
+# Calculate log loss
+log_loss <- -mean(train_labels * log(train_predictions_prob) + (1 - train_labels) * log(1 - train_predictions_prob))
+cat("Log Loss:", log_loss, "\n")
+```
+
+
+```{r}
+
+# Prepare the features from the test set
+test_features <- final_test_tbl_encoded
+
+# Convert to DMatrix for xgboost
+dtest <- xgb.DMatrix(data = as.matrix(test_features))
+
+# Predict probabilities on the test set
+predicted_probabilities <- predict(model_xgb, dtest)
+
+# If you need binary predictions
+# predicted_classes <- ifelse(predicted_probabilities > 0.5, 1, 0)
+
+# Now, attach the SK_ID_CURR from x_test_tbl and combine with the predictions
+prediction_tbl <- x_test_tbl %>%
+  select(SK_ID_CURR) %>%
+  mutate(TARGET = predicted_probabilities)  # Or use predicted_classes if you created it
+
+# View the prediction table
+head(prediction_tbl)
+
+
+```
+
+
+
+```{r}
+#write.csv(prediction_tbl, "submission_005.csv", row.names = FALSE)
+```
+
+> Kaggle here is .73384
+
+> TARGET   282686 (91.9%)        
+>          24825 ( 8.1%)    
+
+> Notice the difference in the last confusion matrix...
+
+
+> The results of my confusion matrices before and after adjusting the class weights highlight an important trade-off in predictive modeling:
+
+> Without Weighting:
+
+> The model had a high overall accuracy, but it was mainly driven by its ability to predict the majority class correctly. The number of true positives (defaults correctly identified) was very low, resulting in a poor sensitivity/specificity balance.
+With Weighting:
+
+> After weighting the minority class, the number of true positives increased significantly, suggesting improved model sensitivity. However, this has come at the cost of incorrectly classifying more of the majority class, which is reflected in a lower overall accuracy and a significant number of false positives (non-defaults incorrectly identified as defaults).
+
+> The choice between these models depends on what is more critical for our application:
+
+> If the cost of missing defaults (true positives) is higher, we might prefer the model with the minority class weighted, even though it has lower overall accuracy. If overall accuracy is more important, and false positives are more costly, we might prefer the model without the weighting.
+
+> We will need to improve Feature Engineering: Perhaps using the bureau data will assist us.
+Hyperparameter Tuning: Adjust other parameters like gamma, min_child_weight, or max_delta_step to control the balance between bias and variance.
+
+> Cost-sensitive Learning: Beyond scale_pos_weight, we can look into custom loss functions that penalize false negatives more than false positives.
+

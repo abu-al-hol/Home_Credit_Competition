@@ -1,0 +1,543 @@
+---
+title: "EDA MSBA Capstone Cleaning & Engineering"
+author: "Jacob Jarrard U0082542"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    css: styles.css
+    toc: True
+    
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(knitr)
+library(summarytools)
+library(gridExtra)
+library(reshape2)
+library(RColorBrewer)
+library(skimr)
+library(gridExtra)
+library(scales)
+library(caret)
+```
+
+```{r}
+
+application_train_tbl <- read.csv("application_train.csv")
+application_test_tbl <- read.csv("application_test.csv")
+#pos_cash_balance <- read.csv("POS_CASH_balance.csv")
+#bureau <- read.csv("bureau.csv")
+#bureau_balance <- read.csv("bureau_balance.csv")
+#credit_card_balance <- read.csv("credit_card_balance.csv") 
+#installments_payments <- read.csv("installments_payments.csv") 
+#previous_application <- read.csv("previous_application.csv")
+
+#test changes
+```
+
+```{r}
+# Step 1: Compute the table with percentages for each ORGANIZATION_TYPE
+table_output <- application_train_tbl %>%
+  group_by(ORGANIZATION_TYPE, TARGET) %>%
+  summarise(Count = n(), .groups = "drop_last") %>%
+  spread(key = TARGET, value = Count, fill = 0) %>%
+  group_by(ORGANIZATION_TYPE) %>%
+  mutate(Total = sum(`0` + `1`),        # Total count for each ORGANIZATION_TYPE
+         Perc_0 = `0` / Total * 100,    # Percentage of 0s
+         Perc_1 = `1` / Total * 100) %>% # Percentage of 1s
+  ungroup() %>%
+  arrange(desc(`Perc_1`))
+
+print(table_output)
+
+# Step 2: Assign groups to the ORGANIZATION_TYPE based on the percentage of DEFAULT
+table_output_grouped <- table_output %>%
+  mutate(Group = cut(row_number(), breaks = c(0, 10, 20, 30, 40, 50, 58), 
+                     labels = c(1, 2, 3, 4, 5, 6), 
+                     include.lowest = TRUE))
+
+table_output_grouped
+# Step 3: Create a lookup table and replace ORGANIZATION_TYPE values in another dataframe
+lookup_tbl <- table_output_grouped %>%
+  select(ORGANIZATION_TYPE, Group)
+
+lookup_tbl #this dataframe will be used to change the ORG_TYPE values in both test and train to be the same 6 groups
+
+application_train_tbl <- application_train_tbl %>%  #makes 6 groups from worst to best pct of 
+  left_join(lookup_tbl, by = "ORGANIZATION_TYPE") %>%
+  mutate(ORGANIZATION_TYPE = as.character(Group)) %>%
+  select(-Group)  # Removing the Group column
+
+application_test_tbl <- application_test_tbl %>% 
+  left_join(lookup_tbl, by = "ORGANIZATION_TYPE") %>% 
+  mutate(ORGANIZATION_TYPE = as.character(Group)) %>% 
+  select(-Group) 
+
+str(application_train_tbl)
+str(application_test_tbl)
+
+unique_values <- unique(application_train_tbl$ORGANIZATION_TYPE)
+
+# Print the unique values
+
+rm(lookup_tbl)
+rm(table_output)
+rm(table_output_grouped)
+rm(unique_values)
+```
+
+```{r}
+
+#we do not have any XNA values in the test set 
+# Get the indices of rows with "XNA" values in CODE_GENDER
+xna_indices <- which(application_train_tbl$CODE_GENDER == "XNA")
+
+# Assign the first two "XNA"s to "female" and the next two to "male"
+application_train_tbl$CODE_GENDER[xna_indices[1:2]] <- "F"
+application_train_tbl$CODE_GENDER[xna_indices[3:4]] <- "M"
+
+# Verify the changes
+gender_counts_updated1 <- table(application_train_tbl$CODE_GENDER)
+print(gender_counts_updated1)
+
+gender_counts_updated2 <- table(application_test_tbl$CODE_GENDER)
+print(gender_counts_updated2)
+rm(gender_counts_updated1)
+rm(gender_counts_updated2)
+rm(xna_indices)
+```
+
+
+```{r}
+
+
+# Replace "" values with "unreported" in the specified columns of application_train_tbl
+application_train_tbl <- application_train_tbl %>%
+  mutate(
+    OCCUPATION_TYPE = ifelse(OCCUPATION_TYPE == "", "unreported", OCCUPATION_TYPE),
+    NAME_TYPE_SUITE = ifelse(NAME_TYPE_SUITE == "", "unreported", NAME_TYPE_SUITE),
+    FONDKAPREMONT_MODE = ifelse(FONDKAPREMONT_MODE == "", "unreported", FONDKAPREMONT_MODE),
+    HOUSETYPE_MODE = ifelse(HOUSETYPE_MODE == "", "unreported", HOUSETYPE_MODE),
+    WALLSMATERIAL_MODE = ifelse(WALLSMATERIAL_MODE == "", "unreported", WALLSMATERIAL_MODE),
+    EMERGENCYSTATE_MODE = ifelse(EMERGENCYSTATE_MODE == "", "unreported", EMERGENCYSTATE_MODE)
+  )
+
+# Replace "" values with "unreported" in the specified columns of application_test_tbl
+application_test_tbl <- application_test_tbl %>%
+  mutate(
+    OCCUPATION_TYPE = ifelse(OCCUPATION_TYPE == "", "unreported", OCCUPATION_TYPE),
+    NAME_TYPE_SUITE = ifelse(NAME_TYPE_SUITE == "", "unreported", NAME_TYPE_SUITE),
+    FONDKAPREMONT_MODE = ifelse(FONDKAPREMONT_MODE == "", "unreported", FONDKAPREMONT_MODE),
+    HOUSETYPE_MODE = ifelse(HOUSETYPE_MODE == "", "unreported", HOUSETYPE_MODE),
+    WALLSMATERIAL_MODE = ifelse(WALLSMATERIAL_MODE == "", "unreported", WALLSMATERIAL_MODE),
+    EMERGENCYSTATE_MODE = ifelse(EMERGENCYSTATE_MODE == "", "unreported", EMERGENCYSTATE_MODE)
+  )
+
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# Training data: Separate into x and y tibbles
+x_train_tbl <- application_train_tbl %>% select(-TARGET)
+y_train_tbl <- application_train_tbl %>% select(TARGET)   
+
+# Testing data: What we submit in the competition
+x_test_tbl  <- application_test_tbl
+
+#a rogue NA was spotted in the testing set, fixing here 
+
+#x_test_tbl <- x_test_tbl %>%
+   # mutate(REGION_RATING_CLIENT_W_CITY = ifelse(is.na(REGION_RATING_CLIENT_W_CITY), 2, REGION_RATING_CLIENT_W_CITY))
+
+x_train_tbl$NAME_INCOME_TYPE[x_train_tbl$NAME_INCOME_TYPE == "Maternity leave"] <- "Working"
+x_train_tbl$NAME_FAMILY_STATUS[x_train_tbl$NAME_FAMILY_STATUS == "Unknown"] <- "Single / not married"
+
+
+
+# Remove the original data to save memory
+rm(application_train_tbl)
+rm(application_test_tbl)
+
+```
+
+
+
+```{r}
+# Identify which columns are character
+char_cols_tr <- sapply(x_train_tbl, is.character)
+char_cols_te <- sapply(x_train_tbl, is.character)
+
+
+# Subset the dataframe to view only those columns
+x_train_tbl_char <- x_train_tbl[, char_cols_tr]
+x_test_tbl_char <- x_test_tbl[, char_cols_te]
+
+# Display the result
+head(x_train_tbl_char)
+head(x_test_tbl_char)
+
+```
+
+
+```{r}
+# Get unique values for each character column
+
+# Get unique values for each character column
+unique_values_tr <- lapply(x_train_tbl_char, unique)
+unique_values_te <- lapply(x_test_tbl_char, unique)
+
+# Display unique values
+unique_values_tr
+unique_values_te
+#at this point all character values are the same in both data sets, only minor changes made to certain values in rare instances 
+
+```
+
+
+```{r}
+# Count NAs for each character column
+na_counts_tr <- sapply(x_train_tbl_char, function(col) sum(is.na(col)))
+na_counts_te <- sapply(x_test_tbl_char, function(col) sum(is.na(col)))
+# Display the counts of NAs
+na_counts_tr
+na_counts_te
+
+```
+
+```{r}
+# Count empty strings for each character column
+empty_string_counts_tr <- sapply(x_train_tbl_char, function(col) sum(col == ""))
+empty_string_counts_te <- sapply(x_test_tbl_char, function(col) sum(col == ""))
+# Display the counts of empty strings
+empty_string_counts_tr
+empty_string_counts_te
+
+```
+
+
+
+
+```{r}
+string_factor_names <- x_train_tbl %>%
+    select_if(is.character) %>%
+    names()
+
+string_factor_names
+```
+
+
+```{r}
+# Assuming x_train_tbl is your training set and x_test_tbl is your testing set
+
+# Convert character columns to factors in the training set
+x_train_tbl <- x_train_tbl %>%
+  mutate_if(is.character, as.factor)
+
+# Convert character columns to factors in the testing set
+x_test_tbl <- x_test_tbl %>%
+  mutate_if(is.character, as.factor)
+
+str(x_train_tbl)
+str(x_test_tbl)
+```
+```{r}
+
+#Maybe not the right spot for this but taking NAs and turning into 0 for seemingly important numeric vars
+
+x_train_tbl$EXT_SOURCE_1[is.na(x_train_tbl$EXT_SOURCE_1)] <- 0
+x_train_tbl$OWN_CAR_AGE[is.na(x_train_tbl$OWN_CAR_AGE)] <- 0
+x_train_tbl$EXT_SOURCE_2[is.na(x_train_tbl$EXT_SOURCE_2)] <- 0
+
+
+
+# Do the same for the test data
+x_test_tbl$EXT_SOURCE_1[is.na(x_test_tbl$EXT_SOURCE_1)] <- 0
+x_test_tbl$OWN_CAR_AGE[is.na(x_test_tbl$OWN_CAR_AGE)] <- 0
+x_test_tbl$EXT_SOURCE_2[is.na(x_test_tbl$EXT_SOURCE_2)] <- 0
+
+
+# Check the summary again to confirm the changes
+summary(x_train_tbl$EXT_SOURCE_1)
+summary(x_train_tbl$EXT_SOURCE_2)
+summary(x_train_tbl$OWN_CAR_AGE)
+summary(x_test_tbl$EXT_SOURCE_1)
+summary(x_test_tbl$EXT_SOURCE_2)
+summary(x_test_tbl$OWN_CAR_AGE)
+str(x_train_tbl)
+str(x_test_tbl)
+
+```
+
+
+
+
+```{r}
+
+unique_numeric_values_tbl <- x_train_tbl %>%
+    select_if(is.numeric) %>%
+    map_df(~ unique(.) %>% length()) %>%
+    gather() %>%
+    arrange(value) %>%
+    mutate(key = as_factor(key))
+
+unique_numeric_values_tbl
+```
+
+
+```{r}
+factor_limit <- 7
+
+num_2_factor_names <- unique_numeric_values_tbl %>%
+    filter(value < factor_limit) %>%
+    arrange(desc(value)) %>%
+    pull(key) %>%
+    as.character()
+
+str(num_2_factor_names)
+```
+
+```{r}
+missing_tbl <- x_train_tbl %>%
+    summarize_all(.funs = ~ sum(is.na(.)) / length(.)) %>%
+    gather() %>%
+    arrange(desc(value)) %>%
+    filter(value > 0)
+
+missing_tbl
+
+```
+
+## Getting rid of columns 
+
+
+```{r}
+cols_to_remove <- missing_tbl %>%
+    filter(value >= 0.2) %>%
+    pull(key)
+ 
+x_train_tbl <- x_train_tbl %>%
+    select(-all_of(cols_to_remove))
+
+
+x_test_tbl <- x_test_tbl %>%
+    select(-all_of(cols_to_remove))
+
+# List of variables to remove
+columns_to_remove <- c(
+  "FLAG_DOCUMENT_10", "FLAG_DOCUMENT_12", "FLAG_DOCUMENT_13", 
+  "FLAG_DOCUMENT_14", "FLAG_DOCUMENT_15", "FLAG_DOCUMENT_16", 
+  "FLAG_DOCUMENT_17", "FLAG_DOCUMENT_19", "FLAG_DOCUMENT_20", 
+  "FLAG_DOCUMENT_21"
+)
+
+# Remove variables from training set
+x_train_tbl <- x_train_tbl %>%
+  select(-all_of(columns_to_remove))
+
+# Remove variables from testing set
+x_test_tbl <- x_test_tbl %>%
+  select(-all_of(columns_to_remove))
+
+
+```
+
+## The Big Cleaning and NA removal 
+```{r}
+# Calculate means from the training set
+amt_annuity_mean <- mean(x_train_tbl$AMT_ANNUITY, na.rm = TRUE)
+ext_source_2_mean <- mean(x_train_tbl$EXT_SOURCE_2, na.rm = TRUE)
+
+# Impute NAs in the training set
+x_train_tbl <- x_train_tbl %>%
+  mutate(
+    AMT_ANNUITY = ifelse(is.na(AMT_ANNUITY), amt_annuity_mean, AMT_ANNUITY),
+    EXT_SOURCE_2 = ifelse(is.na(EXT_SOURCE_2), ext_source_2_mean, EXT_SOURCE_2)
+  )
+
+# Impute NAs in the testing set
+x_test_tbl <- x_test_tbl %>%
+  mutate(
+    AMT_ANNUITY = ifelse(is.na(AMT_ANNUITY), amt_annuity_mean, AMT_ANNUITY),
+    EXT_SOURCE_2 = ifelse(is.na(EXT_SOURCE_2), ext_source_2_mean, EXT_SOURCE_2)
+  )
+
+
+# Calculate medians from the training set
+amt_goods_price_median <- round(median(x_train_tbl$AMT_GOODS_PRICE, na.rm = TRUE))
+ext_source_3_median <- round(median(x_train_tbl$EXT_SOURCE_3, na.rm = TRUE))
+obs_30_cnt_social_circle_median <- round(median(x_train_tbl$OBS_30_CNT_SOCIAL_CIRCLE, na.rm = TRUE))
+def_30_cnt_social_circle_median <- round(median(x_train_tbl$DEF_30_CNT_SOCIAL_CIRCLE, na.rm = TRUE))
+obs_60_cnt_social_circle_median <- round(median(x_train_tbl$OBS_60_CNT_SOCIAL_CIRCLE, na.rm = TRUE))
+def_60_cnt_social_circle_median <- round(median(x_train_tbl$DEF_60_CNT_SOCIAL_CIRCLE, na.rm = TRUE))
+days_last_phone_change_median <- round(median(x_train_tbl$DAYS_LAST_PHONE_CHANGE, na.rm = TRUE))
+
+# Impute NAs in the training set
+x_train_tbl <- x_train_tbl %>%
+  mutate(
+    AMT_GOODS_PRICE = ifelse(is.na(AMT_GOODS_PRICE), amt_goods_price_median, AMT_GOODS_PRICE),
+    EXT_SOURCE_3 = ifelse(is.na(EXT_SOURCE_3), ext_source_3_median, EXT_SOURCE_3),
+    OBS_30_CNT_SOCIAL_CIRCLE = ifelse(is.na(OBS_30_CNT_SOCIAL_CIRCLE), obs_30_cnt_social_circle_median, OBS_30_CNT_SOCIAL_CIRCLE),
+    DEF_30_CNT_SOCIAL_CIRCLE = ifelse(is.na(DEF_30_CNT_SOCIAL_CIRCLE), def_30_cnt_social_circle_median, DEF_30_CNT_SOCIAL_CIRCLE),
+    OBS_60_CNT_SOCIAL_CIRCLE = ifelse(is.na(OBS_60_CNT_SOCIAL_CIRCLE), obs_60_cnt_social_circle_median, OBS_60_CNT_SOCIAL_CIRCLE),
+    DEF_60_CNT_SOCIAL_CIRCLE = ifelse(is.na(DEF_60_CNT_SOCIAL_CIRCLE), def_60_cnt_social_circle_median, DEF_60_CNT_SOCIAL_CIRCLE),
+    DAYS_LAST_PHONE_CHANGE = ifelse(is.na(DAYS_LAST_PHONE_CHANGE), days_last_phone_change_median, DAYS_LAST_PHONE_CHANGE)
+  )
+
+# Impute NAs in the testing set
+x_test_tbl <- x_test_tbl %>%
+  mutate(
+    AMT_GOODS_PRICE = ifelse(is.na(AMT_GOODS_PRICE), amt_goods_price_median, AMT_GOODS_PRICE),
+    EXT_SOURCE_3 = ifelse(is.na(EXT_SOURCE_3), ext_source_3_median, EXT_SOURCE_3),
+    OBS_30_CNT_SOCIAL_CIRCLE = ifelse(is.na(OBS_30_CNT_SOCIAL_CIRCLE), obs_30_cnt_social_circle_median, OBS_30_CNT_SOCIAL_CIRCLE),
+    DEF_30_CNT_SOCIAL_CIRCLE = ifelse(is.na(DEF_30_CNT_SOCIAL_CIRCLE), def_30_cnt_social_circle_median, DEF_30_CNT_SOCIAL_CIRCLE),
+    OBS_60_CNT_SOCIAL_CIRCLE = ifelse(is.na(OBS_60_CNT_SOCIAL_CIRCLE), obs_60_cnt_social_circle_median, OBS_60_CNT_SOCIAL_CIRCLE),
+    DEF_60_CNT_SOCIAL_CIRCLE = ifelse(is.na(DEF_60_CNT_SOCIAL_CIRCLE), def_60_cnt_social_circle_median, DEF_60_CNT_SOCIAL_CIRCLE),
+    DAYS_LAST_PHONE_CHANGE = ifelse(is.na(DAYS_LAST_PHONE_CHANGE), days_last_phone_change_median, DAYS_LAST_PHONE_CHANGE)
+  )
+
+x_train_tbl$CNT_FAM_MEMBERS[is.na(x_train_tbl$CNT_FAM_MEMBERS)] <- 2
+
+
+```
+
+```{r}
+#need to do NA removal and median with no decimal the value:  
+
+# List of variables
+variables <- c("AMT_REQ_CREDIT_BUREAU_HOUR", 
+               "AMT_REQ_CREDIT_BUREAU_DAY", 
+               "AMT_REQ_CREDIT_BUREAU_WEEK", 
+               "AMT_REQ_CREDIT_BUREAU_MON", 
+               "AMT_REQ_CREDIT_BUREAU_QRT", 
+               "AMT_REQ_CREDIT_BUREAU_YEAR")
+
+# Function to impute NA values with rounded median
+impute_na_with_median <- function(data, var) {
+  data[[var]][is.na(data[[var]])] <- round(median(data[[var]], na.rm = TRUE))
+  return(data)
+}
+
+# Apply imputation on training dataset
+for (var in variables) {
+  x_train_tbl <- impute_na_with_median(x_train_tbl, var)
+}
+
+# Apply imputation on testing dataset using median from training dataset
+for (var in variables) {
+  median_val <- round(median(x_train_tbl[[var]], na.rm = TRUE))
+  x_test_tbl[[var]][is.na(x_test_tbl[[var]])] <- median_val
+}
+
+```
+
+
+
+```{r}
+
+#suppressWarnings(dfSummary(x_train_tbl))
+
+```
+
+```{r}
+suppressWarnings(dfSummary(x_test_tbl))
+```
+
+
+```{r}
+
+Training_NAs_by_column_tidy <- x_train_tbl %>%
+  summarise_all(~sum(is.na(.)))
+
+Testing_NAs_by_column_tidy <- x_test_tbl %>%
+  summarise_all(~sum(is.na(.)))
+
+Training_NAs_by_column_tidy
+Testing_NAs_by_column_tidy
+```
+
+```{r}
+missing_tbl <- x_train_tbl %>%
+    summarize_all(.funs = ~ sum(is.na(.)) / length(.)) %>%
+    gather() %>%
+    arrange(desc(value)) %>%
+    filter(value > 0)
+
+missing_tbl
+```
+
+
+
+
+
+
+```{r warning=FALSE}
+
+
+skim(x_train_tbl)
+skim(x_test_tbl)
+skim(y_train_tbl)
+table(y_train_tbl$TARGET)
+
+
+write.csv(x_train_tbl, file = "x_train_tbl.csv", row.names = FALSE)
+write.csv(x_test_tbl, file = "x_test_tbl.csv", row.names = FALSE)
+write.csv(y_train_tbl, file = "y_train_tbl.csv", row.names = FALSE)
+
+
+rm(rec_obj)
+rm(x_train_tbl_char)
+rm(unique_values)
+rm(string_2_factor_names)
+rm(unique_numeric_values_tbl)
+rm(num_2_factor_names)
+rm(missing_tbl)
+rm(na_rows)
+rm(Testing_NAs_by_column_tidy)
+rm(Training_NAs_by_column_tidy)
+rm(char_cols)
+rm(cols_to_remove)
+rm(empty_string_counts)
+rm(factor_limit)
+rm(na_counts)
+rm(unique_values)
+rm(unique_numeric_values_tbl)
+rm(unique_values_te)
+rm(unique_values_tr)
+rm(x_test_tbl_char)
+rm(amt_annuity_mean)
+rm(amt_goods_price_median)
+rm(char_cols_te)
+rm(char_cols_tr)
+rm(columns_to_remove)
+rm(days_last_phone_change_median)
+rm(def_30_cnt_social_circle_median)
+rm(def_60_cnt_social_circle_median)
+rm(empty_string_counts_te)
+rm(empty_string_counts_tr)
+rm(ext_source_2_mean)
+rm(ext_source_3_median)
+rm(string_factor_names)
+rm(var)
+rm(variables)
+rm(impute_na_with_median)
+rm(median_val)
+rm(na_counts_te)
+rm(na_counts_tr)
+rm(obs_30_cnt_social_circle_median)
+rm(obs_60_cnt_social_circle_median)
+
+```

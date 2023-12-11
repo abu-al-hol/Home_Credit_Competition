@@ -43,6 +43,15 @@ Implementing the XGBoosted model proved invaluable for enhancing loan approval p
 ## Difficulties 
 
 
+In tackling the Home Credit dataset, our group encountered various challenges due to the dataset's complexity. The data had many missing values and inconsistencies, requiring extensive cleaning and preprocessing. We spent considerable time handling outliers, filling in missing data, and converting categorical information into a usable format. This process relied on technical skills, problem-solving, and persistence, which are vital when dealing with such gnarly data. Ultimately, from the 120+ variables included in the original data, we used only 49 total variables. The best part about the problems with this exercise was the effort spent understanding, cleaning, and imputing data and watching our metrics and model improve each time we made a smart adjustment. 
+
+
 ## Lessons Learned
 
+The first lesson I took from this is that there is NEVER enough cleaning and EDA to do. Feature engineering is also critical, but this cannot happen until you know your data extremely well.  THis means, if you want to try this competition, you will have to spend hours upon hours really getting to the heart of each variable and knowing what it is and what it does and how it works with other variables.  This seems painstaking and hard, but in reality it is the journey in the data science that makes the results more (or less) fulfilling. I wish I had done a better job of knowing my data. Not until I had completed it, worked in tandem with my team observing their results, did I know what I would have done (or could to) in an iterative fashion to REALLY show these results in the real world. Furthermore, the focus ALWAYS needs to be on business value and showing, even using sample dollars, what employing a model can theoretically do for a company's bottom line. 
+
 ## Conclusion
+
+I have to get a plug in here for the R programming language and Posit cloud. I used Posit cloud exclusively and then used R studio desktop to make last minute changes. The amount of computing power required to do an XGBoosted model with the size of data in hand demanded a very powerful Posit cloud virtual machine set up. R is great, it is easy to use, and self contained. Many more people use Python for this work, but in this case R studio and Posit cloud was super easy and reliable. I suggest anyone try to tackle this Kaggle competition, with a team or without, and you will come away much better at ML and predictive models than you were when you started. 
+
+~ All the best,  Jake Jarrard

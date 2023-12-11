@@ -38,7 +38,7 @@ The work you see included here is my own. However, when our team assembled, our 
 
 ## The Business Value
 
-
+Implementing the XGBoosted model proved invaluable for enhancing loan approval processes. While the model's technical metrics are impressive, its real business value lies in its ability to inform Home Credit business leaders about potentially risky loan applications and deny such loans from the get-go. By accurately predicting loan defaults, the model is a crucial tool in identifying and avoiding lending to high-risk customers. This capability reduces financial losses from defaults and streamlines the loan approval process, ensuring that the company allocates its resources to creditworthy customers. The insights provided by the model empower business leaders to make data-driven decisions, fostering a more secure and profitable lending environment. This strategic approach to loan issuance solidifies Home Credit's position in the market, emphasizing responsible lending practices and financial prudence. 
 
 ## Difficulties 
 
